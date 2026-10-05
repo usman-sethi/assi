@@ -57,7 +57,17 @@ app.post('/api/generate', async (req: Request, res: Response) => {
       });
     }
 
-    const { structured, html } = await generateAssignmentContent(parseResult.data);
+    // 45-second timeout safeguard to always respond before Cloud Run 60s proxy drop
+    let timeoutId: any;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('Generation took longer than expected due to server load. Please try again with shorter length or fewer questions.')), 45000);
+    });
+
+    const { structured, html } = await Promise.race([
+      generateAssignmentContent(parseResult.data),
+      timeoutPromise,
+    ]);
+    clearTimeout(timeoutId);
 
     return res.json({
       success: true,
@@ -84,7 +94,17 @@ app.post('/api/ai-edit', async (req: Request, res: Response) => {
     }
 
     const { action, text, context } = parseResult.data;
-    const resultText = await executeAiEdit({ action, text, context });
+
+    let timeoutId: any;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('AI editing took too long. Please select a shorter snippet.')), 25000);
+    });
+
+    const resultText = await Promise.race([
+      executeAiEdit({ action, text, context }),
+      timeoutPromise,
+    ]);
+    clearTimeout(timeoutId);
 
     return res.json({
       success: true,

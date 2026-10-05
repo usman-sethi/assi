@@ -112,14 +112,24 @@ export const AssignmentEditor: React.FC<AssignmentEditorProps> = ({
           }),
         });
 
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || 'Failed to autosave');
+        const rawText = await res.text();
+        let updatedData: any = null;
+        try {
+          updatedData = JSON.parse(rawText);
+        } catch {
+          if (!res.ok) {
+            throw new Error(`Autosave failed (${res.status})`);
+          }
         }
 
-        const updatedData = await res.json();
-        setAssignment(updatedData);
-        onUpdate(updatedData);
+        if (!res.ok) {
+          throw new Error(updatedData?.error || 'Failed to autosave');
+        }
+
+        if (updatedData) {
+          setAssignment(updatedData);
+          onUpdate(updatedData);
+        }
         setSaveStatus('saved');
         setLastSavedAt(new Date());
       } catch (err: any) {

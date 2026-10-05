@@ -151,7 +151,7 @@ export function buildEditorContentFromStructured(
   return html;
 }
 
-const CANDIDATE_MODELS = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+const CANDIDATE_MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 
 function parseErrorMessage(err: any): string {
   if (!err) return 'An unknown error occurred';
@@ -177,19 +177,16 @@ function cleanUserFriendlyError(raw: string): string {
   if (
     raw.toLowerCase().includes('high demand') ||
     raw.includes('503') ||
-    raw.includes('UNAVAILABLE')
+    raw.includes('UNAVAILABLE') ||
+    raw.toLowerCase().includes('the page c')
   ) {
     return 'The AI service is experiencing a temporary surge in traffic. Please wait a moment and click Try Again.';
   }
   return raw;
 }
 
-async function waitMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
- * Executes a Gemini API call with automatic retry and model fallback
+ * Executes a Gemini API call with fast model fallback to stay well within gateway timeout
  */
 async function callGeminiWithResilience<T>(
   actionName: string,
@@ -198,45 +195,22 @@ async function callGeminiWithResilience<T>(
   let lastError: any = null;
 
   for (const model of CANDIDATE_MODELS) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        return await fn(model);
-      } catch (err: any) {
-        lastError = err;
-        const msg = parseErrorMessage(err);
-        const lower = msg.toLowerCase();
+    try {
+      // 22-second timeout per model so total time stays well under Cloud Run 60s gateway timeout
+      let timeoutHandle: any;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error(`Request timed out on ${model}`)), 22000);
+      });
 
-        const isQuota =
-          lower.includes('quota') ||
-          lower.includes('resource_exhausted') ||
-          lower.includes('limit: 5');
-
-        if (isQuota) {
-          console.warn(`[AI ${actionName}] Model ${model} quota reached. Switching directly to next model...`);
-          break; // Move to next model immediately
-        }
-
-        const isTemporary =
-          msg.includes('503') ||
-          msg.includes('UNAVAILABLE') ||
-          lower.includes('high demand') ||
-          lower.includes('rate limit') ||
-          lower.includes('429');
-
-        if (isTemporary) {
-          console.warn(`[AI ${actionName}] Attempt ${attempt} on ${model} hit temporary condition (${msg}). Retrying in ${attempt * 1.5}s...`);
-          await waitMs(attempt * 1500);
-          continue;
-        }
-
-        // Auth or fatal errors
-        if (lower.includes('api_key') || lower.includes('unauthenticated')) {
-          throw new Error(cleanUserFriendlyError(msg));
-        }
-
-        console.warn(`[AI ${actionName}] Non-retryable error on ${model}: ${msg}. Trying fallback model...`);
-        break;
-      }
+      const result = await Promise.race([fn(model), timeoutPromise]);
+      clearTimeout(timeoutHandle);
+      return result;
+    } catch (err: any) {
+      lastError = err;
+      const msg = parseErrorMessage(err);
+      console.warn(`[AI ${actionName}] Attempt on model "${model}" failed: ${msg}. Switching to next candidate model...`);
+      // Immediately try next model in the pool
+      continue;
     }
   }
 

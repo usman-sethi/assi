@@ -118,7 +118,17 @@ export const AIControls: React.FC<AIControlsProps> = ({
         }),
       });
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        if (rawText.toLowerCase().includes('the page c') || response.status === 504) {
+          throw new Error('The AI edit request timed out. Please select a shorter sentence.');
+        }
+        throw new Error('AI service is temporarily busy. Please try again.');
+      }
+
       if (!response.ok) {
         throw new Error(data.error || 'Failed to process AI edit');
       }

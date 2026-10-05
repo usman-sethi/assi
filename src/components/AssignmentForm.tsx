@@ -21,6 +21,74 @@ interface AssignmentFormProps {
   onCancel?: () => void;
 }
 
+async function safeParseApiResponse(res: Response, contextLabel = 'request'): Promise<any> {
+  const rawText = await res.text();
+  let data: any = null;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    const lower = rawText.toLowerCase();
+    if (
+      lower.includes('the page cannot') ||
+      lower.includes('the page c') ||
+      lower.includes('unexpected token') ||
+      res.status === 504 ||
+      res.status === 408
+    ) {
+      throw new Error(
+        'The AI generation took longer than expected due to server traffic. Please select "Short" or "Medium" length and click Try Again.'
+      );
+    }
+    if (res.status === 502 || res.status === 503) {
+      throw new Error(
+        'The AI service is experiencing high traffic right now. Please wait a few seconds and click Try Again.'
+      );
+    }
+    if (res.status === 413) {
+      throw new Error('The uploaded logo or question text is too large. Please use an image file under 2MB.');
+    }
+    throw new Error(`The server returned status ${res.status || 'unknown'}. Please click Try Again.`);
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error || data?.message || `Failed to process ${contextLabel} (${res.status})`);
+  }
+  return data;
+}
+
+function cleanErrorMessage(raw: string): string {
+  if (!raw) return 'An unexpected error occurred during generation.';
+  const lower = raw.toLowerCase();
+
+  if (
+    lower.includes('unexpected token') ||
+    lower.includes('the page c') ||
+    lower.includes('is not valid json') ||
+    lower.includes('504') ||
+    lower.includes('timed out')
+  ) {
+    return 'The AI request timed out or experienced high traffic. Please click Try Again below to re-submit.';
+  }
+
+  if (lower.includes('high demand') || lower.includes('503') || lower.includes('unavailable')) {
+    return 'The AI model is currently experiencing high traffic. Spikes in demand are usually brief—click Try Again below to re-submit.';
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.error?.message) {
+      return parsed.error.message;
+    }
+  } catch {
+    const match = raw.match(/"message"\s*:\s*"([^"]+)"/);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+
+  return raw;
+}
+
 export const AssignmentForm: React.FC<AssignmentFormProps> = ({ onGenerated, onCancel }) => {
   // Form fields
   const [studentName, setStudentName] = useState('Usman Sethi');
@@ -141,6 +209,9 @@ export const AssignmentForm: React.FC<AssignmentFormProps> = ({ onGenerated, onC
 
     try {
       // 1. Generate structured content with Gemini
+      // Avoid sending massive base64 image data to the AI prompt generation endpoint
+      const promptLogoRef = logoUrl && !logoUrl.startsWith('data:') ? logoUrl : '/university-logo.png';
+
       const genResponse = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -151,7 +222,7 @@ export const AssignmentForm: React.FC<AssignmentFormProps> = ({ onGenerated, onC
           department,
           semester,
           universityName,
-          logoUrl,
+          logoUrl: promptLogoRef,
           subject,
           submittedTo,
           questions: validQuestions,
@@ -161,14 +232,11 @@ export const AssignmentForm: React.FC<AssignmentFormProps> = ({ onGenerated, onC
         }),
       });
 
-      const genData = await genResponse.json();
-      if (!genResponse.ok) {
-        throw new Error(genData.error || 'Failed to generate assignment answer');
-      }
+      const genData = await safeParseApiResponse(genResponse, 'generation');
 
       setCurrentStep('Formatting academic document & saving...');
 
-      // 2. Save new assignment to database / store
+      // 2. Save new assignment to database / store (with user custom logo)
       const saveResponse = await fetch('/api/assignments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -190,10 +258,7 @@ export const AssignmentForm: React.FC<AssignmentFormProps> = ({ onGenerated, onC
         }),
       });
 
-      const savedAssignment = await saveResponse.json();
-      if (!saveResponse.ok) {
-        throw new Error(savedAssignment.error || 'Failed to persist assignment');
-      }
+      const savedAssignment = await safeParseApiResponse(saveResponse, 'saving');
 
       setCurrentStep('Opening interactive document editor...');
       setTimeout(() => {
