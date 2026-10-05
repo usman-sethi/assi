@@ -33,13 +33,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ onOpenCreate, onOpenAssign
     setError(null);
     try {
       const res = await fetch('/api/assignments');
-      if (!res.ok) {
-        throw new Error('Failed to fetch assignments');
+      const rawText = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        throw new Error('Server returned an invalid response format. Please click Retry.');
       }
-      const data = await res.json();
-      setAssignments(data);
+
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to fetch assignments (${res.status})`);
+      }
+
+      const list = Array.isArray(data) ? data : [];
+      setAssignments(list);
+      try {
+        sessionStorage.setItem('cached_assignments', JSON.stringify(list));
+      } catch {
+        // Ignore storage errors
+      }
     } catch (err: any) {
-      console.error(err);
+      console.error('Fetch assignments error:', err);
+      // Try to recover from cached list
+      try {
+        const cached = sessionStorage.getItem('cached_assignments');
+        if (cached) {
+          const list = JSON.parse(cached);
+          if (Array.isArray(list) && list.length > 0) {
+            setAssignments(list);
+            setError(null);
+            setIsLoading(false);
+            return;
+          }
+        }
+      } catch {
+        // Ignore cache parse error
+      }
       setError(err.message || 'Could not load assignments');
     } finally {
       setIsLoading(false);
@@ -156,12 +185,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onOpenCreate, onOpenAssign
 
       {/* Error state */}
       {!isLoading && error && (
-        <div className="p-6 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-start space-x-3 mb-6">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-          <div>
-            <span className="font-semibold block">Failed to load:</span>
-            <span>{error}</span>
+        <div className="p-6 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-start justify-between mb-6">
+          <div className="flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-600" />
+            <div>
+              <span className="font-semibold block">Failed to load coursework:</span>
+              <span className="text-xs text-red-600">{error}</span>
+            </div>
           </div>
+          <button
+            onClick={fetchAssignments}
+            className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-800 rounded-md font-medium text-xs transition-colors flex-shrink-0 cursor-pointer"
+          >
+            Retry Fetching
+          </button>
         </div>
       )}
 

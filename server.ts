@@ -25,7 +25,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+// Port 3000 is required by the environment constraint where nginx proxies external requests
+const PORT = 3000;
 
 // Body parsing middleware
 app.use(express.json({ limit: '15mb' }));
@@ -144,6 +145,7 @@ app.post('/api/assignments', async (req: Request, res: Response) => {
 // 4. List all assignments
 app.get('/api/assignments', async (req: Request, res: Response) => {
   try {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const assignments = await findAllAssignments();
     return res.json(assignments);
   } catch (err: any) {
@@ -157,6 +159,7 @@ app.get('/api/assignments', async (req: Request, res: Response) => {
 // 5. Get assignment by ID
 app.get('/api/assignments/:id', async (req: Request, res: Response) => {
   try {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const { id } = req.params;
     const assignment = await findAssignmentById(id);
     if (!assignment) {
