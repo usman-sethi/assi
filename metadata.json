@@ -1,0 +1,6 @@
+{
+  "name": "AI Assignment Generator & DOCX Exporter",
+  "description": "Generate academic assignments with structured answers using Gemini AI, edit in an interactive rich-text editor with AI assists, and export formatted Microsoft Word .docx documents.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
