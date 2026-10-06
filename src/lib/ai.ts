@@ -1,10 +1,10 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { StructuredResponseSchema } from './validation.js';
-import {
+import { StructuredResponseSchema } from './validation.ts';
+import type {
   AiEditAction,
   QuestionItem,
   StructuredAssignmentResponse,
-} from '../types/assignment.js';
+} from '../types/assignment.ts';
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;

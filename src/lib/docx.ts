@@ -18,7 +18,7 @@ import {
   UnderlineType,
   ShadingType,
 } from 'docx';
-import { AssignmentData } from '../types/assignment.js';
+import type { AssignmentData } from '../types/assignment.ts';
 
 interface DocxRun {
   text: string;

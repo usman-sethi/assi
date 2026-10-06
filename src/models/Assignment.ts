@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document } from 'mongoose';
-import { AssignmentData, QuestionItem } from '../types/assignment.js';
-import { connectToDatabase, isMongoConnected, readLocalAssignments, writeLocalAssignments } from '../lib/mongodb.js';
+import type { AssignmentData, QuestionItem } from '../types/assignment.ts';
+import { connectToDatabase, isMongoConnected, readLocalAssignments, writeLocalAssignments } from '../lib/mongodb.ts';
 
 export interface IAssignmentDocument extends Document {
   studentName: string;

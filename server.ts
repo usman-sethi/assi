@@ -1,4 +1,5 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -7,17 +8,17 @@ import {
   GenerateRequestSchema,
   AiEditRequestSchema,
   UpdateAssignmentSchema,
-} from './src/lib/validation.js';
-import { generateAssignmentContent, executeAiEdit } from './src/lib/ai.js';
+} from './src/lib/validation.ts';
+import { generateAssignmentContent, executeAiEdit } from './src/lib/ai.ts';
 import {
   createAssignment,
   findAssignmentById,
   findAllAssignments,
   updateAssignmentById,
   deleteAssignmentById,
-} from './src/models/Assignment.js';
-import { generateDocxDocument } from './src/lib/docx.js';
-import { connectToDatabase, isMongoConnected } from './src/lib/mongodb.js';
+} from './src/models/Assignment.ts';
+import { generateDocxDocument } from './src/lib/docx.ts';
+import { connectToDatabase, isMongoConnected, getDatabaseStatus } from './src/lib/mongodb.ts';
 
 dotenv.config();
 
@@ -32,16 +33,36 @@ const PORT = 3000;
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
-// Initial attempt to connect to MongoDB in background
-connectToDatabase().catch((err) => {
-  console.warn('Initial MongoDB connection warning (will use local fallback):', err.message);
+// URL prefix normalization for Vercel serverless rewrites
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (!req.url.startsWith('/api')) {
+    const knownEndpoints = ['/generate', '/assignments', '/health', '/ai-edit', '/export-docx'];
+    for (const endpoint of knownEndpoints) {
+      if (req.url === endpoint || req.url.startsWith(`${endpoint}/`) || req.url.startsWith(`${endpoint}?`)) {
+        req.url = `/api${req.url}`;
+        break;
+      }
+    }
+  }
+  next();
 });
+
+// Initial attempt to connect to MongoDB in background
+connectToDatabase().catch(() => {});
 
 // Health & System status endpoint
 app.get('/api/health', (req: Request, res: Response) => {
+  const dbStatus = getDatabaseStatus();
   res.json({
     status: 'ok',
-    database: isMongoConnected() ? 'mongodb' : 'local-storage',
+    environment: process.env.VERCEL ? 'vercel-serverless' : 'node-server',
+    database: dbStatus.type,
+    mongodbConnected: dbStatus.connected,
+    mongodbConfigured: Boolean(process.env.MONGODB_URI),
+    mongodbAuthFailed: dbStatus.authFailed,
+    mongodbNotice: dbStatus.authFailed
+      ? 'MongoDB authentication failed. Using resilient local storage.'
+      : undefined,
     geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
     timestamp: new Date().toISOString(),
   });
@@ -290,6 +311,12 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-});
+// In standard environments (Node, Render, Docker, AI Studio), start the long-running listener.
+// In Vercel serverless environments, Vercel imports and invokes `app` directly.
+if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+  });
+}
+
+export default app;
